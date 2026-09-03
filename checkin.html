@@ -27,8 +27,11 @@
 
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script>
-    // ★★★ 여기에 본인의 Apps Script 배포 URL(.../exec)을 넣어주세요 ★★★
+
     const EXEC_URL = 'https://script.google.com/macros/s/AKfycbzCTWukEMy4RS3XWOQwmc1jTQpN8Arw5sKaBF74rbaJfisglbONIf93W5KIIuhKSbtgIA/exec';
+
+
+    const APP_SECRET = '여기에_스크립트_속성에_등록한_값과_동일하게';
 
     let processing = false;
 
@@ -40,12 +43,11 @@
       resultEl.className = '';
       resultEl.innerText = '확인 중...';
 
-      // Content-Type을 text/plain으로 보내야 프리플라이트(OPTIONS)가 발생하지 않음
-      // (Apps Script doPost는 OPTIONS 요청을 제대로 처리하지 못함)
+ 
       fetch(EXEC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ reservationId: decodedText }),
+        body: JSON.stringify({ reservationId: decodedText, secret: APP_SECRET }),
       })
         .then(function (res) { return res.json(); })
         .then(function (res) {
