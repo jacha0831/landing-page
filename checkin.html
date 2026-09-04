@@ -24,25 +24,17 @@
   <h2>입장 검표</h2>
   <div id="reader"></div>
   <div id="result"></div>
-
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script>
-
     const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyz2WxTU0SjOeqsgGygPs1U9KJTHYjjMMuGYH_5ggGZx-tZg51MvWMXnXHWRWNtKbwc/exec';
-
-
     const APP_SECRET = '1a8f4f8d3e9t02fs';
-
     let processing = false;
-
     function onScanSuccess(decodedText) {
       if (processing) return; // 스캔 중 중복 호출 방지
       processing = true;
-
       const resultEl = document.getElementById('result');
       resultEl.className = '';
       resultEl.innerText = '확인 중...';
-
  
       fetch(EXEC_URL, {
         method: 'POST',
@@ -62,8 +54,25 @@
         });
     }
 
-    const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: 250 });
-    scanner.render(onScanSuccess);
+    // [변경] 스캔 박스를 고정 픽셀(250) 대신, 실제 카메라 미리보기(viewfinder)
+    // 크기에 비례한 함수로 계산하도록 변경.
+    // 고정값 250을 쓰면 모바일 세로 화면에서 viewfinder 높이가 250px보다
+    // 작은 경우가 많아서 스캔 박스가 실제 비디오 영역 밖으로 그려지고,
+    // 그 결과 QR을 아무리 비춰도 인식이 안 되는 문제가 있었음.
+    function qrboxFunction(viewfinderWidth, viewfinderHeight) {
+      const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+      const size = Math.floor(minEdge * 0.7);
+      return { width: size, height: size };
+    }
+
+    const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
+
+    // [변경] 두 번째 콜백(에러/미인식 콜백)을 추가.
+    // 필수는 아니지만, 스캔이 계속 실패하고 있는지 콘솔에서 바로 확인할 수 있어서
+    // 디버깅에 도움이 됨. 화면에는 아무것도 안 뜨니 사용자 경험에는 영향 없음.
+    scanner.render(onScanSuccess, function (errorMessage) {
+      // 매 프레임마다 QR을 못 찾으면 호출되는 정상적인 콜백이라 조용히 무시함
+    });
   </script>
 </body>
 </html>
