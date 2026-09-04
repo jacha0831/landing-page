@@ -23,7 +23,7 @@
 <body>
   <h2>입장 검표</h2>
   <div id="reader"></div>
-  <div id="result"></div>
+  <div id="result">카메라 준비 중...</div>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script>
     const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyz2WxTU0SjOeqsgGygPs1U9KJTHYjjMMuGYH_5ggGZx-tZg51MvWMXnXHWRWNtKbwc/exec';
@@ -33,22 +33,17 @@
     let lastDecodedText = null;
     let lastDecodedAt = 0;
 
-    // [변경] pause(true)/resume() 조합을 제거함.
-    // html5-qrcode 라이브러리는 pause(true)로 비디오 스트림까지 같이 멈추면
-    // resume()이 카메라를 제대로 다시 살리지 못하는 알려진 버그가 있음
-    // (특히 iOS Safari). 그래서 첫 스캔 이후 화면이 정지 프레임처럼 굳어버려
-    // 그 뒤로는 아무것도 인식이 안 되는 증상이 생김.
-    //
-    // -> 카메라는 계속 켜둔 채로, "처리 중이거나 방금 처리한 같은 코드"인
-    // 경우만 무시하는 방식으로 바꿈. 카메라 자체를 멈췄다 켰다 하지 않으므로
-    // 이 버그를 원천적으로 피함.
+    // [변경] Html5QrcodeScanner(UI 위젯) -> Html5Qrcode(저수준 클래스)로 교체.
+    // Html5QrcodeScanner는 "한 번 스캔하고 끝나는" 단발성 UI 컴포넌트라
+    // 스캔 성공 후 내부적으로 UI를 다시 그리면서 비디오 스트림이 깨지는
+    // 알려진 문제가 있음. 검표 앱처럼 계속 여러 번 스캔해야 하는 경우엔
+    // Html5Qrcode.start()로 카메라를 한 번만 켜고, stop() 부르기 전까지는
+    // 절대 멈추지 않는 저수준 API를 쓰는 게 정석.
     function onScanSuccess(decodedText) {
       const now = Date.now();
 
       if (processing) return; // 현재 처리 중이면 무시
-
-      // 같은 QR을 연속 프레임에서 계속 읽어들이는 것 방지 (쿨다운 내 동일 코드 무시)
-      if (decodedText === lastDecodedText && now - lastDecodedAt < 3000) return;
+      if (decodedText === lastDecodedText && now - lastDecodedAt < 3000) return; // 같은 코드 연속 인식 무시
 
       processing = true;
       lastDecodedText = decodedText;
@@ -73,12 +68,14 @@
           resultEl.innerText = '오류가 발생했습니다: ' + err.message;
         })
         .finally(function () {
-          // 카메라/스캔 루프는 건드리지 않고 processing 플래그만 풀어줌.
-          // 짧게 딜레이를 둬서 같은 프레임에서 재요청이 바로 안 나가게 함.
           setTimeout(function () {
             processing = false;
           }, 800);
         });
+    }
+
+    function onScanFailure() {
+      // 매 프레임마다 QR을 못 찾으면 호출되는 정상적인 콜백이라 조용히 무시함
     }
 
     function qrboxFunction(viewfinderWidth, viewfinderHeight) {
@@ -87,9 +84,29 @@
       return { width: size, height: size };
     }
 
-    const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
-    scanner.render(onScanSuccess, function (errorMessage) {
-      // 매 프레임마다 QR을 못 찾으면 호출되는 정상적인 콜백이라 조용히 무시함
+    const html5QrCode = new Html5Qrcode('reader');
+
+    // facingMode: "environment" -> 후면 카메라 우선 사용 (검표 현장에서 필요한 방향)
+    html5QrCode
+      .start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: qrboxFunction },
+        onScanSuccess,
+        onScanFailure
+      )
+      .then(function () {
+        document.getElementById('result').innerText = '';
+      })
+      .catch(function (err) {
+        document.getElementById('result').className = 'error';
+        document.getElementById('result').innerText = '카메라를 시작할 수 없습니다: ' + err;
+      });
+
+    // 페이지를 벗어나거나 새로고침할 때 카메라 스트림을 깔끔하게 정리
+    window.addEventListener('beforeunload', function () {
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().catch(function () {});
+      }
     });
   </script>
 </body>
