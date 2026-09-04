@@ -29,9 +29,13 @@
     const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyz2WxTU0SjOeqsgGygPs1U9KJTHYjjMMuGYH_5ggGZx-tZg51MvWMXnXHWRWNtKbwc/exec';
     const APP_SECRET = '1a8f4f8d3e9t02fs';
     let processing = false;
+    let scanner; // onScanSuccess에서 pause/resume 호출을 위해 바깥 스코프에 선언
     function onScanSuccess(decodedText) {
       if (processing) return; // 스캔 중 중복 호출 방지
       processing = true;
+      if (scanner) scanner.pause(true); // [추가] 스캔 루프를 명시적으로 멈춤.
+      // html5-qrcode가 스캔 성공 후 내부 루프가 그대로 멈춰버리는(특히 iOS) 알려진
+      // 이슈가 있어서, pause -> (처리 끝나면) resume을 명시적으로 호출해 강제로 재시작시킴
       const resultEl = document.getElementById('result');
       resultEl.className = '';
       resultEl.innerText = '확인 중...';
@@ -45,12 +49,16 @@
         .then(function (res) {
           resultEl.className = res.result;
           resultEl.innerText = res.message;
-          setTimeout(function () { processing = false; }, 1500); // 재스캔 쿨다운
+          setTimeout(function () {
+            processing = false;
+            if (scanner) scanner.resume(); // [추가] 재스캔 가능하도록 다시 시작
+          }, 1500); // 재스캔 쿨다운
         })
         .catch(function (err) {
           resultEl.className = 'error';
           resultEl.innerText = '오류가 발생했습니다: ' + err.message;
           processing = false;
+          if (scanner) scanner.resume(); // [추가] 에러 나도 다시 스캔 가능하게
         });
     }
     function qrboxFunction(viewfinderWidth, viewfinderHeight) {
@@ -58,7 +66,7 @@
       const size = Math.floor(minEdge * 0.7);
       return { width: size, height: size };
     }
-    const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
+    scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
     scanner.render(onScanSuccess, function (errorMessage) {
       // 매 프레임마다 QR을 못 찾으면 호출되는 정상적인 콜백이라 조용히 무시함
     });
