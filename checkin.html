@@ -24,6 +24,11 @@
   <h2>입장 검표</h2>
   <div id="reader"></div>
   <div id="result"></div>
+  <!-- [임시] 아이폰에서 콘솔 에러를 직접 확인하기 위한 디버깅 도구.
+       화면 우측 하단에 작은 버튼이 생기고, 누르면 콘솔/네트워크 로그를 볼 수 있음.
+       원인 파악 끝나면 이 스크립트 2줄은 삭제할 것. -->
+  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+  <script>eruda.init();</script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script>
     const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyz2WxTU0SjOeqsgGygPs1U9KJTHYjjMMuGYH_5ggGZx-tZg51MvWMXnXHWRWNtKbwc/exec';
