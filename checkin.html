@@ -18,27 +18,60 @@
     .ok { background: #e6f7e9; color: #1a7a34; }
     .already { background: #fff4e5; color: #b45f06; }
     .notfound, .error { background: #fdecea; color: #c62828; }
+    /* [임시] 외부 디버깅 도구 없이 화면에서 바로 로그를 보기 위한 패널.
+       원인 파악 끝나면 이 style/div/script 블록 전부 삭제할 것. */
+    #debugPanel {
+      margin-top: 16px;
+      text-align: left;
+      font-size: 11px;
+      font-family: monospace;
+      background: #1e1e1e;
+      color: #7CFC00;
+      padding: 8px;
+      border-radius: 6px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
   <h2>입장 검표</h2>
   <div id="reader"></div>
   <div id="result"></div>
-  <!-- [임시] 콘솔 에러 확인용 디버깅 도구. 원인 파악 끝나면 이 스크립트 2줄은 삭제할 것. -->
-  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-  <script>eruda.init();</script>
+  <div id="debugPanel">디버그 로그 대기 중...</div>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script>
     const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyz2WxTU0SjOeqsgGygPs1U9KJTHYjjMMuGYH_5ggGZx-tZg51MvWMXnXHWRWNtKbwc/exec';
     const APP_SECRET = '1a8f4f8d3e9t02fs';
     let processing = false;
+
+    // [임시] 외부 도구 없이 화면에 직접 로그를 쌓는 함수
+    let debugLines = [];
+    function debugLog(msg) {
+      const time = new Date().toLocaleTimeString();
+      debugLines.push('[' + time + '] ' + msg);
+      if (debugLines.length > 30) debugLines.shift(); // 너무 길어지지 않게 최근 30개만 유지
+      document.getElementById('debugPanel').innerText = debugLines.join('\n');
+    }
+
+    // 페이지 전역에서 발생하는 모든 JS 에러를 잡아서 화면에 표시
+    window.onerror = function (message, source, lineno, colno, error) {
+      debugLog('JS 에러: ' + message + ' (' + lineno + ':' + colno + ')');
+    };
+
+    debugLog('스크립트 로드 시작');
+    debugLog('html5-qrcode 로드됨: ' + (typeof Html5QrcodeScanner !== 'undefined'));
+
     function onScanSuccess(decodedText) {
+      debugLog('스캔 성공! decodedText = ' + decodedText);
       if (processing) return; // 스캔 중 중복 호출 방지
       processing = true;
       const resultEl = document.getElementById('result');
       resultEl.className = '';
       resultEl.innerText = '확인 중...';
- 
+
       fetch(EXEC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -46,11 +79,13 @@
       })
         .then(function (res) { return res.json(); })
         .then(function (res) {
+          debugLog('서버 응답: ' + JSON.stringify(res));
           resultEl.className = res.result;
           resultEl.innerText = res.message;
           setTimeout(function () { processing = false; }, 1500); // 재스캔 쿨다운
         })
         .catch(function (err) {
+          debugLog('fetch 에러: ' + err.message);
           resultEl.className = 'error';
           resultEl.innerText = '오류가 발생했습니다: ' + err.message;
           processing = false;
@@ -59,23 +94,31 @@
 
     // [변경] 스캔 박스를 고정 픽셀(250) 대신, 실제 카메라 미리보기(viewfinder)
     // 크기에 비례한 함수로 계산하도록 변경.
-    // 고정값 250을 쓰면 모바일 세로 화면에서 viewfinder 높이가 250px보다
-    // 작은 경우가 많아서 스캔 박스가 실제 비디오 영역 밖으로 그려지고,
-    // 그 결과 QR을 아무리 비춰도 인식이 안 되는 문제가 있었음.
     function qrboxFunction(viewfinderWidth, viewfinderHeight) {
       const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
       const size = Math.floor(minEdge * 0.7);
       return { width: size, height: size };
     }
 
-    const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
+    try {
+      const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
+      debugLog('스캐너 생성 성공');
 
-    // [변경] 두 번째 콜백(에러/미인식 콜백)을 추가.
-    // 필수는 아니지만, 스캔이 계속 실패하고 있는지 콘솔에서 바로 확인할 수 있어서
-    // 디버깅에 도움이 됨. 화면에는 아무것도 안 뜨니 사용자 경험에는 영향 없음.
-    scanner.render(onScanSuccess, function (errorMessage) {
-      // 매 프레임마다 QR을 못 찾으면 호출되는 정상적인 콜백이라 조용히 무시함
-    });
+      let errorCount = 0;
+      let lastLoggedAt = 0;
+      scanner.render(onScanSuccess, function (errorMessage) {
+        // 매 프레임마다 QR을 못 찾으면 호출되는 정상적인 콜백.
+        // 너무 자주 호출되므로 3초에 한 번씩만, 최근 에러 메시지를 요약해서 로그로 남김
+        errorCount++;
+        const now = Date.now();
+        if (now - lastLoggedAt > 3000) {
+          debugLog('스캔 시도 중... (최근 에러: ' + errorMessage + ', 누적 ' + errorCount + '회)');
+          lastLoggedAt = now;
+        }
+      });
+    } catch (e) {
+      debugLog('스캐너 생성 실패: ' + e.message);
+    }
   </script>
 </body>
 </html>
