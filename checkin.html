@@ -28,18 +28,36 @@
   <script>
     const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyz2WxTU0SjOeqsgGygPs1U9KJTHYjjMMuGYH_5ggGZx-tZg51MvWMXnXHWRWNtKbwc/exec';
     const APP_SECRET = '1a8f4f8d3e9t02fs';
+
     let processing = false;
-    let scanner; // onScanSuccess에서 pause/resume 호출을 위해 바깥 스코프에 선언
+    let lastDecodedText = null;
+    let lastDecodedAt = 0;
+
+    // [변경] pause(true)/resume() 조합을 제거함.
+    // html5-qrcode 라이브러리는 pause(true)로 비디오 스트림까지 같이 멈추면
+    // resume()이 카메라를 제대로 다시 살리지 못하는 알려진 버그가 있음
+    // (특히 iOS Safari). 그래서 첫 스캔 이후 화면이 정지 프레임처럼 굳어버려
+    // 그 뒤로는 아무것도 인식이 안 되는 증상이 생김.
+    //
+    // -> 카메라는 계속 켜둔 채로, "처리 중이거나 방금 처리한 같은 코드"인
+    // 경우만 무시하는 방식으로 바꿈. 카메라 자체를 멈췄다 켰다 하지 않으므로
+    // 이 버그를 원천적으로 피함.
     function onScanSuccess(decodedText) {
-      if (processing) return; // 스캔 중 중복 호출 방지
+      const now = Date.now();
+
+      if (processing) return; // 현재 처리 중이면 무시
+
+      // 같은 QR을 연속 프레임에서 계속 읽어들이는 것 방지 (쿨다운 내 동일 코드 무시)
+      if (decodedText === lastDecodedText && now - lastDecodedAt < 3000) return;
+
       processing = true;
-      if (scanner) scanner.pause(true); // [추가] 스캔 루프를 명시적으로 멈춤.
-      // html5-qrcode가 스캔 성공 후 내부 루프가 그대로 멈춰버리는(특히 iOS) 알려진
-      // 이슈가 있어서, pause -> (처리 끝나면) resume을 명시적으로 호출해 강제로 재시작시킴
+      lastDecodedText = decodedText;
+      lastDecodedAt = now;
+
       const resultEl = document.getElementById('result');
       resultEl.className = '';
       resultEl.innerText = '확인 중...';
- 
+
       fetch(EXEC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -49,24 +67,27 @@
         .then(function (res) {
           resultEl.className = res.result;
           resultEl.innerText = res.message;
-          setTimeout(function () {
-            processing = false;
-            if (scanner) scanner.resume(); // [추가] 재스캔 가능하도록 다시 시작
-          }, 1500); // 재스캔 쿨다운
         })
         .catch(function (err) {
           resultEl.className = 'error';
           resultEl.innerText = '오류가 발생했습니다: ' + err.message;
-          processing = false;
-          if (scanner) scanner.resume(); // [추가] 에러 나도 다시 스캔 가능하게
+        })
+        .finally(function () {
+          // 카메라/스캔 루프는 건드리지 않고 processing 플래그만 풀어줌.
+          // 짧게 딜레이를 둬서 같은 프레임에서 재요청이 바로 안 나가게 함.
+          setTimeout(function () {
+            processing = false;
+          }, 800);
         });
     }
+
     function qrboxFunction(viewfinderWidth, viewfinderHeight) {
       const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
       const size = Math.floor(minEdge * 0.7);
       return { width: size, height: size };
     }
-    scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
+
+    const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: qrboxFunction });
     scanner.render(onScanSuccess, function (errorMessage) {
       // 매 프레임마다 QR을 못 찾으면 호출되는 정상적인 콜백이라 조용히 무시함
     });
